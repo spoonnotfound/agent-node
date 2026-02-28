@@ -2,6 +2,7 @@ pub mod app_state;
 pub mod error;
 pub mod history;
 pub mod mcp;
+pub mod mcp_protocol;
 pub mod process;
 pub mod session;
 pub mod state;

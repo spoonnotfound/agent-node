@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::env;
 use axum::{
     Router,
     routing::{get, post},
@@ -7,6 +8,7 @@ use axum::{
     response::IntoResponse,
 };
 use serde_json::{json, Value};
+use tower_http::cors::{CorsLayer, Any};
 
 use agent_node::{
     AppState, Agent,
@@ -68,8 +70,22 @@ async fn health() -> impl IntoResponse {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Read config from environment variables
+    let host = env::var("AGENT_NODE_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port: u16 = env::var("AGENT_NODE_PORT")
+        .unwrap_or_else(|_| "3000".to_string())
+        .parse()
+        .unwrap_or(3000);
+    let auth_token = env::var("AGENT_NODE_AUTH").ok();
+
     let app_state = AppState::new();
     let state = ServerState { app_state };
+
+    // CORS configuration
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
 
     let app = Router::new()
         .route("/", get(health))
@@ -77,10 +93,18 @@ async fn main() -> Result<()> {
         .route("/api/agents", get(list_agents).post(add_agent))
         .route("/api/agents/:id/env", post(set_env))
         .route("/api/tools", get(list_tools))
+        .layer(cors)
         .with_state(state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    println!("Agent Node server running on http://{}", addr);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    
+    if let Some(ref token) = auth_token {
+        println!("Agent Node server running on http://{}:{}/ (auth required)", host, port);
+        println!("Auth token: {}", token);
+    } else {
+        println!("Agent Node server running on http://{}:{}", host, port);
+        println!("WARNING: No auth token set. Set AGENT_NODE_AUTH for security.");
+    }
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

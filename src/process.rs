@@ -1,7 +1,8 @@
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
-use std::process::{Child, Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
 use tokio::sync::RwLock;
 
 use crate::error::{AppError, Result};
@@ -10,42 +11,46 @@ const MAX_BUFFER_SIZE: usize = 2 * 1024 * 1024; // 2MB
 
 #[derive(Clone)]
 pub struct ProcessHandle {
-    child: Arc<RwLock<Option<Child>>>,
     pub agent_id: String,
     pub session_id: String,
+    pub pid: u32,
+    child: Arc<RwLock<Option<tokio::process::Child>>>,
 }
 
 impl ProcessHandle {
-    pub fn new(agent_id: impl Into<String>, session_id: impl Into<String>, child: Child) -> Self {
+    pub fn new(agent_id: String, session_id: String, child: tokio::process::Child) -> Self {
+        let pid = child.id().unwrap_or(0);
         Self {
+            agent_id,
+            session_id,
+            pid,
             child: Arc::new(RwLock::new(Some(child))),
-            agent_id: agent_id.into(),
-            session_id: session_id.into(),
         }
     }
 
-    pub async fn write_stdin(&self, input: &str) -> Result<()> {
+    pub async fn write_input(&self, input: &str) -> Result<()> {
         let mut child_guard = self.child.write().await;
         if let Some(ref mut child) = *child_guard {
             if let Some(ref mut stdin) = child.stdin {
-                use std::io::Write;
-                stdin.write_all(input.as_bytes())?;
-                stdin.flush()?;
+                use tokio::io::AsyncWriteExt;
+                stdin.write_all(input.as_bytes()).await?;
+                stdin.flush().await?;
                 return Ok(());
             }
         }
         Err(AppError::Process("stdin not available".to_string()))
     }
 
-    pub async fn read_stdout(&self) -> Result<String> {
+    pub async fn read_output(&self) -> Result<String> {
         let mut child_guard = self.child.write().await;
         if let Some(ref mut child) = *child_guard {
             if let Some(stdout) = child.stdout.take() {
                 let reader = BufReader::new(stdout);
+                let mut lines = reader.lines();
                 let mut output = String::new();
                 let mut total = 0;
-                for line in reader.lines() {
-                    let line = line?;
+                
+                while let Ok(Some(line)) = lines.next_line().await {
                     total += line.len();
                     if total > MAX_BUFFER_SIZE {
                         output.push_str("\n[Output truncated: exceeded 2MB limit]");
@@ -53,6 +58,11 @@ impl ProcessHandle {
                     }
                     output.push_str(&line);
                     output.push('\n');
+                    
+                    // Check for turn-end marker
+                    if line.contains("TURN_END") || line.contains("回合结束") {
+                        break;
+                    }
                 }
                 return Ok(output);
             }
@@ -63,7 +73,7 @@ impl ProcessHandle {
     pub async fn kill(&self) -> Result<()> {
         let mut child_guard = self.child.write().await;
         if let Some(mut child) = child_guard.take() {
-            child.kill()?;
+            child.kill().await?;
         }
         Ok(())
     }
@@ -71,12 +81,17 @@ impl ProcessHandle {
     pub async fn is_running(&self) -> bool {
         let mut child_guard = self.child.write().await;
         if let Some(ref mut child) = *child_guard {
-            return child.try_wait().map(|w| w.is_none()).unwrap_or(false);
+            return match child.try_wait() {
+                Ok(Some(_)) => false,
+                Ok(None) => true,
+                Err(_) => false,
+            };
         }
         false
     }
 }
 
+#[derive(Clone)]
 pub struct ProcessManager {
     processes: Arc<RwLock<HashMap<String, ProcessHandle>>>,
 }
@@ -100,8 +115,12 @@ impl ProcessManager {
         let mut cmd = Command::new(command);
         cmd.args(args);
 
-        // Environment isolation - clear all env vars and set only what we want
+        // Environment isolation
         cmd.env_clear();
+        // Add default PATH
+        if let Ok(path) = std::env::var("PATH") {
+            cmd.env("PATH", path);
+        }
         for (key, value) in env {
             cmd.env(key, value);
         }
@@ -115,7 +134,7 @@ impl ProcessManager {
         cmd.stderr(Stdio::piped());
 
         let child = cmd.spawn()?;
-        let handle = ProcessHandle::new(agent_id, session_id, child);
+        let handle = ProcessHandle::new(agent_id.to_string(), session_id.to_string(), child);
 
         let mut processes = self.processes.write().await;
         processes.insert(session_id.to_string(), handle.clone());

@@ -110,6 +110,21 @@ impl McpTool {
             }),
         }
     }
+
+    pub fn codex_exec() -> Self {
+        Self {
+            name: "codex_exec".to_string(),
+            description: "Execute Codex AI to perform coding tasks".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "prompt": { "type": "string", "description": "Prompt for Codex" },
+                    "model": { "type": "string", "description": "Model to use (optional)" }
+                },
+                "required": ["prompt"]
+            }),
+        }
+    }
 }
 
 pub fn get_all_tools() -> Vec<McpTool> {
@@ -121,5 +136,6 @@ pub fn get_all_tools() -> Vec<McpTool> {
         McpTool::session_execute_turn(),
         McpTool::session_resolve_action(),
         McpTool::session_get_history(),
+        McpTool::codex_exec(),
     ]
 }

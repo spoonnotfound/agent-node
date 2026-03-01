@@ -164,6 +164,38 @@ async fn handle_tool_call(app_state: &AppState, tool_name: &str, args: Value) ->
             }
         }
         
+        "codex_exec" => {
+            let prompt = args["prompt"].as_str().unwrap_or("");
+            if prompt.is_empty() {
+                return Err("Prompt is required".to_string());
+            }
+            
+            // Execute Codex via CLI
+            let result = tokio::process::Command::new("codex")
+                .arg("exec")
+                .arg(prompt)
+                .output()
+                .await
+                .map_err(|e| format!("Failed to run codex: {}", e))?;
+            
+            let stdout = String::from_utf8_lossy(&result.stdout);
+            let stderr = String::from_utf8_lossy(&result.stderr);
+            
+            if result.status.success() {
+                Ok(json!({
+                    "output": stdout,
+                    "success": true
+                }).to_string())
+            } else {
+                Ok(json!({
+                    "output": stdout,
+                    "error": stderr,
+                    "success": false,
+                    "exit_code": result.status.code()
+                }).to_string())
+            }
+        }
+        
         _ => Err(format!("Unknown tool: {}", tool_name)),
     }
 }
@@ -286,6 +318,17 @@ async fn list_tools() -> impl IntoResponse {
     (StatusCode::OK, Json(json!({ "tools": tools })))
 }
 
+async fn call_tool(State(state): State<ServerState>, Json(payload): Json<Value>) -> impl IntoResponse {
+    let tool_name = payload["name"].as_str().unwrap_or("");
+    let arguments = payload.get("arguments").cloned().unwrap_or(serde_json::Value::Null);
+    
+    let result = match handle_tool_call(&state.app_state, tool_name, arguments).await {
+        Ok(output) => (StatusCode::OK, Json(json!({ "success": true, "result": output }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "success": false, "error": e }))),
+    };
+    result
+}
+
 async fn health() -> impl IntoResponse {
     (StatusCode::OK, Json(json!({ "status": "ok" })))
 }
@@ -355,6 +398,7 @@ async fn main() {
         .route("/api/histories", get(list_histories))
         .route("/api/histories/:session_id", get(get_history))
         .route("/api/tools", get(list_tools))
+        .route("/api/execute", post(call_tool))
         .layer(cors)
         .with_state(state.clone());
 

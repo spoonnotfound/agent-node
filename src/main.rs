@@ -22,7 +22,7 @@ use agent_node::mcp_protocol::{
 #[derive(Clone)]
 struct ServerState {
     app_state: AppState,
-    initialized: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    auth_token: Option<String>,
 }
 
 // ============ MCP Protocol Handler ============
@@ -30,7 +30,6 @@ struct ServerState {
 async fn handle_mcp_request(state: &ServerState, request: JsonRpcRequest) -> JsonRpcResponse {
     match request.method.as_str() {
         "initialize" => {
-            state.initialized.store(true, std::sync::atomic::Ordering::SeqCst);
             let result = InitializeResult {
                 protocol_version: "2024-11-05".to_string(),
                 capabilities: serde_json::json!({ "tools": {} }),
@@ -327,12 +326,12 @@ async fn main() {
         .unwrap_or_else(|_| "3000".to_string())
         .parse()
         .unwrap_or(3000);
-    let _auth_token = env::var("AGENT_NODE_AUTH").ok();
+    let auth_token = env::var("AGENT_NODE_AUTH").ok();
 
     let app_state = AppState::new();
     let state = ServerState { 
         app_state, 
-        initialized: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        auth_token: auth_token.clone(),
     };
 
     let cors = CorsLayer::new()

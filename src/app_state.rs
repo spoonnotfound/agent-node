@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::io::BufReader;
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
 use crate::state::Agent;
 use crate::history::{HistoryStore, SessionHistory};
@@ -35,6 +36,64 @@ impl AppState {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             process_manager: Arc::new(ProcessManager::new()),
         }
+    }
+
+    /// Create new AppState and optionally load persisted state
+    pub async fn from_persistence() -> Self {
+        let state = Self::new();
+        
+        // Try to load from disk
+        let config_dir = dirs::config_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("agent-node");
+        
+        let state_file = config_dir.join("state.yaml");
+        
+        if state_file.exists() {
+            if let Ok(content) = std::fs::read_to_string(&state_file) {
+                if let Ok(persisted) = serde_yaml::from_str::<PersistedState>(&content) {
+                    // Load agents
+                    let agent_count = persisted.agents.len();
+                    for (id, agent) in persisted.agents {
+                        let mut a = Agent::new(&id, &agent.name);
+                        a.version = agent.version;
+                        a.env = agent.env;
+                        state.agents.write().await.insert(id, a);
+                    }
+                    println!("Loaded {} agents from disk", agent_count);
+                }
+            }
+        }
+        
+        state
+    }
+
+    /// Persist current state to disk
+    pub async fn persist(&self) -> Result<(), String> {
+        let config_dir = dirs::config_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("agent-node");
+        
+        std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+        
+        let agents = self.agents.read().await;
+        let persisted = PersistedState {
+            agents: agents.iter().map(|(k, v)| (k.clone(), PersistedAgent {
+                name: v.name.clone(),
+                version: v.version.clone(),
+                env: v.env.clone(),
+            })).collect(),
+        };
+        
+        let content = serde_yaml::to_string(&persisted).map_err(|e| e.to_string())?;
+        let state_file = config_dir.join("state.yaml");
+        
+        // Atomic write
+        let temp_file = config_dir.join("state.yaml.tmp");
+        std::fs::write(&temp_file, content).map_err(|e| e.to_string())?;
+        std::fs::rename(temp_file, state_file).map_err(|e| e.to_string())?;
+        
+        Ok(())
     }
 
     // Agent methods
@@ -242,4 +301,18 @@ impl ProcessHandle {
         }
         Ok(())
     }
+}
+
+// ============ Persistence Types ============
+
+#[derive(Serialize, Deserialize)]
+struct PersistedState {
+    agents: HashMap<String, PersistedAgent>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PersistedAgent {
+    name: String,
+    version: String,
+    env: HashMap<String, String>,
 }

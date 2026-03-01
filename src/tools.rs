@@ -125,6 +125,31 @@ impl McpTool {
             }),
         }
     }
+
+    pub fn codex_update() -> Self {
+        Self {
+            name: "codex_update".to_string(),
+            description: "Update Codex CLI to the latest version".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {}
+            }),
+        }
+    }
+
+    pub fn codex_config() -> Self {
+        Self {
+            name: "codex_config".to_string(),
+            description: "Get or set Codex configuration".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "key": { "type": "string", "description": "Config key (e.g. model, personality)" },
+                    "value": { "type": "string", "description": "New value (omit to get current value)" }
+                }
+            }),
+        }
+    }
 }
 
 pub fn get_all_tools() -> Vec<McpTool> {
@@ -137,5 +162,7 @@ pub fn get_all_tools() -> Vec<McpTool> {
         McpTool::session_resolve_action(),
         McpTool::session_get_history(),
         McpTool::codex_exec(),
+        McpTool::codex_update(),
+        McpTool::codex_config(),
     ]
 }

@@ -170,8 +170,9 @@ async fn handle_tool_call(app_state: &AppState, tool_name: &str, args: Value) ->
                 return Err("Prompt is required".to_string());
             }
             
-            // Execute Codex via CLI
-            let result = tokio::process::Command::new("codex")
+            // Execute Codex via npx
+            let result = tokio::process::Command::new("npx")
+                .arg("codex")
                 .arg("exec")
                 .arg(prompt)
                 .output()
@@ -196,8 +197,110 @@ async fn handle_tool_call(app_state: &AppState, tool_name: &str, args: Value) ->
             }
         }
         
+        "codex_update" => {
+            handle_codex_update().await
+        }
+        
+        "codex_config" => {
+            let key = args["key"].as_str().unwrap_or("");
+            let value = args["value"].as_str();
+            handle_codex_config(key, value).await
+        }
+        
         _ => Err(format!("Unknown tool: {}", tool_name)),
     }
+}
+
+async fn handle_codex_update() -> Result<String, String> {
+    // Get current version
+    let current = tokio::process::Command::new("npx")
+        .arg("codex")
+        .arg("--version")
+        .output()
+        .await
+        .map_err(|e| format!("Failed to check version: {}", e))?;
+    
+    let current_version = String::from_utf8_lossy(&current.stdout).trim().to_string();
+    
+    // Update Codex
+    let update = tokio::process::Command::new("npm")
+        .args(["install", "-g", "codex-cli@latest", "--force"])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to update: {}", e))?;
+    
+    let output = String::from_utf8_lossy(&update.stdout).trim().to_string();
+    let error = String::from_utf8_lossy(&update.stderr).trim().to_string();
+    
+    // Get new version
+    let new = tokio::process::Command::new("npx")
+        .arg("codex")
+        .arg("--version")
+        .output()
+        .await;
+    
+    let new_version = new.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_else(|_| "unknown".to_string());
+    
+    Ok(json!({
+        "before": current_version,
+        "after": new_version,
+        "output": output,
+        "error": error,
+        "success": update.status.success()
+    }).to_string())
+}
+
+async fn handle_codex_config(key: &str, value: Option<&str>) -> Result<String, String> {
+    let config_path = dirs::home_dir()
+        .ok_or("Cannot find home directory")?
+        .join(".codex/config.toml");
+    
+    // Read current config
+    let content = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config: {}", e))?;
+    
+    if key.is_empty() {
+        // Return full config
+        return Ok(json!({
+            "config": content,
+            "path": config_path.to_string_lossy()
+        }).to_string());
+    }
+    
+    // Check if setting a value
+    if let Some(new_value) = value {
+        // Update config
+        let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+        
+        if let Some(line_num) = lines.iter().position(|l| l.starts_with(&format!("{} = ", key))) {
+            lines[line_num] = format!("{} = \"{}\"", key, new_value);
+        } else {
+            lines.push(format!("{} = \"{}\"", key, new_value));
+        }
+        
+        let new_content = lines.join("\n");
+        std::fs::write(&config_path, &new_content)
+            .map_err(|e| format!("Failed to write config: {}", e))?;
+        
+        return Ok(json!({
+            "key": key,
+            "value": new_value,
+            "success": true
+        }).to_string());
+    }
+    
+    // Get current value
+    for line in content.lines() {
+        if line.starts_with(&format!("{} = ", key)) {
+            let val = line.split("= ").nth(1).unwrap_or("").trim_matches('"');
+            return Ok(json!({
+                "key": key,
+                "value": val
+            }).to_string());
+        }
+    }
+    
+    Err(format!("Key '{}' not found in config", key))
 }
 
 // ============ REST Handlers ============

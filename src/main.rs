@@ -586,3 +586,36 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
+
+// ============ Input Validation ============
+
+fn validate_agent_id(id: &str) -> Result<(), String> {
+    if id.is_empty() {
+        return Err("agent_id cannot be empty".to_string());
+    }
+    if id.len() > 100 {
+        return Err("agent_id too long (max 100 chars)".to_string());
+    }
+    Ok(())
+}
+
+fn validate_session_id(id: &str) -> Result<(), String> {
+    if id.is_empty() {
+        return Err("session_id cannot be empty".to_string());
+    }
+    // UUID format check - simple length check
+    if id.len() != 36 || !id.contains('-') {
+        return Err("invalid session_id format".to_string());
+    }
+    Ok(())
+}
+
+fn validate_prompt(prompt: &str) -> Result<(), String> {
+    if prompt.is_empty() {
+        return Err("prompt cannot be empty".to_string());
+    }
+    if prompt.len() > 100000 {
+        return Err("prompt too long (max 100KB)".to_string());
+    }
+    Ok(())
+}

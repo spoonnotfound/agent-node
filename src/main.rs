@@ -208,6 +208,34 @@ async fn handle_tool_call(app_state: &AppState, tool_name: &str, args: Value) ->
             handle_codex_config(key, value).await
         }
         
+        "system_get_sessions" => {
+            let sessions = app_state.list_sessions().await;
+            Ok(serde_json::to_string(&sessions).unwrap_or_default())
+        }
+        
+        "system_kill_session" => {
+            let session_id = args["session_id"].as_str().unwrap_or("");
+            if session_id.is_empty() {
+                return Err("session_id is required".to_string());
+            }
+            app_state.process_manager.kill(session_id).await
+                .map_err(|e| e.to_string())?;
+            app_state.remove_session(session_id).await;
+            info!("Session killed: {}", session_id);
+            Ok(json!({"success": true, "session_id": session_id}).to_string())
+        }
+        
+        "system_info" => {
+            let info = serde_json::json!({
+                "version": "0.1.0",
+                "name": "Agent Node",
+                "mcp_version": "2024-11-05",
+                "platform": std::env::consts::OS,
+                "arch": std::env::consts::ARCH,
+            });
+            Ok(info.to_string())
+        }
+        
         _ => Err(format!("Unknown tool: {}", tool_name)),
     }
 }

@@ -8,6 +8,9 @@ pub enum AppError {
     Session(String),
     State(String),
     Timeout,
+    Auth(String),
+    NotFound(String),
+    Config(String),
 }
 
 impl fmt::Display for AppError {
@@ -19,6 +22,9 @@ impl fmt::Display for AppError {
             AppError::Session(msg) => write!(f, "session error: {}", msg),
             AppError::State(msg) => write!(f, "state error: {}", msg),
             AppError::Timeout => write!(f, "timeout"),
+            AppError::Auth(msg) => write!(f, "auth error: {}", msg),
+            AppError::NotFound(msg) => write!(f, "not found: {}", msg),
+            AppError::Config(msg) => write!(f, "config error: {}", msg),
         }
     }
 }

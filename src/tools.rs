@@ -150,6 +150,42 @@ impl McpTool {
             }),
         }
     }
+
+    pub fn system_get_sessions() -> Self {
+        Self {
+            name: "system_get_sessions".to_string(),
+            description: "List all active sessions".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {}
+            }),
+        }
+    }
+
+    pub fn system_kill_session() -> Self {
+        Self {
+            name: "system_kill_session".to_string(),
+            description: "Kill a running session".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "session_id": { "type": "string", "description": "Session ID to kill" }
+                },
+                "required": ["session_id"]
+            }),
+        }
+    }
+
+    pub fn system_info() -> Self {
+        Self {
+            name: "system_info".to_string(),
+            description: "Get system information (version, uptime, etc.)".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {}
+            }),
+        }
+    }
 }
 
 pub fn get_all_tools() -> Vec<McpTool> {
@@ -157,6 +193,9 @@ pub fn get_all_tools() -> Vec<McpTool> {
         McpTool::system_get_agents(),
         McpTool::system_upgrade_agent(),
         McpTool::system_set_env(),
+        McpTool::system_get_sessions(),
+        McpTool::system_kill_session(),
+        McpTool::system_info(),
         McpTool::session_start(),
         McpTool::session_execute_turn(),
         McpTool::session_resolve_action(),

@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use tower_http::cors::{CorsLayer, Any};
 use uuid::Uuid;
 use tokio::io::AsyncWriteExt;
+use tracing::{info, error, warn};
 
 use agent_node::{AppState, Agent, Session, SessionHistory};
 use agent_node::mcp_protocol::{
@@ -468,6 +469,13 @@ async fn handle_mcp_stdin(state: ServerState) {
 
 #[tokio::main]
 async fn main() {
+    // Initialize logging
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
+    
+    info!("Starting Agent Node...");
+    
     let port: u16 = env::var("AGENT_NODE_PORT")
         .unwrap_or_else(|_| "3000".to_string())
         .parse()
@@ -509,6 +517,19 @@ async fn main() {
     let mcp_state = state.clone();
     tokio::spawn(async move {
         handle_mcp_stdin(mcp_state).await;
+    });
+
+    // Spawn periodic persistence task (save every 30 seconds)
+    let persist_state = state.app_state.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+            if let Err(e) = persist_state.persist().await {
+                error!("Failed to persist state: {}", e);
+            } else {
+                info!("State persisted successfully");
+            }
+        }
     });
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));

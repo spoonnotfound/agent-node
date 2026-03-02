@@ -14,6 +14,23 @@ use uuid::Uuid;
 use tokio::io::AsyncWriteExt;
 use tracing::{info, error, warn};
 
+// ============ Helper Functions ============
+
+fn get_string_arg(args: &Value, key: &str, default: &str) -> String {
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| default.to_string())
+}
+
+fn get_optional_string_arg(args: &Value, key: &str) -> Option<String> {
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+
+
 use agent_node::{AppState, Agent, Session, SessionHistory};
 use agent_node::mcp_protocol::{
     JsonRpcRequest, JsonRpcResponse, InitializeResult, ServerCapabilities, ServerInfo,
